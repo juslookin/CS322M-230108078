@@ -1,12 +1,12 @@
 module vending_mealy(
     input  wire clk,
     input  wire rst,       
-    input  wire [1:0] coin, // 01=5, 10=10, 00=idle, 11=ignore
+    input  wire [1:0] coin,
     output reg  vend,  
     output reg  chg5       
 );
 
-    // State encoding (represents total so far)
+    // State encoding
     parameter total_0  = 2'b00; // total=0
     parameter total_5  = 2'b01; // total=5
     parameter total_10 = 2'b10; // total=10
@@ -31,7 +31,7 @@ module vending_mealy(
     always @(*) begin
         // defaults
         state_next = state_present;
-        vend   = 0;
+        vend       = 0;
         chg5       = 0;
 
         case (state_present)

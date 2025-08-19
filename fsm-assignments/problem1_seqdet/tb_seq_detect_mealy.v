@@ -1,12 +1,10 @@
 `timescale 1ns/1ps
-module tb_seq_detect_mealy;   // <-- testbench name is different
+module tb_seq_detect_mealy;
     reg clk, rst, din;
     wire y;
 
-    // DUT instantiation
     seq_detect_mealy dut(.clk(clk), .reset(rst), .din(din), .y(y));
 
-    // Clock generation: 100 MHz (10 ns period)
     always #5 clk = ~clk;
 
     initial begin
@@ -15,7 +13,6 @@ module tb_seq_detect_mealy;   // <-- testbench name is different
         rst = 1;
         din = 0;
 
-        // Waveform dump
         $dumpfile("dump.vcd");
         $dumpvars(0, tb_seq_detect_mealy);
 
@@ -28,7 +25,6 @@ module tb_seq_detect_mealy;   // <-- testbench name is different
         send_bit(1); send_bit(0); send_bit(1);
         send_bit(1); send_bit(1); send_bit(0); send_bit(1);
 
-        // Idle a few cycles
         repeat (5) @(negedge clk);
 
         $finish;

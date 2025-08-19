@@ -1,29 +1,24 @@
-// Traffic light controller (Moore FSM, tick-driven)
-// NS: G 5 ticks -> Y 2 ticks ->
-// EW: G 5 ticks -> Y 2 ticks -> repeat
+
 module traffic_light(
     input  wire clk,
-    input  wire rst,     // synchronous, active-high
+    input  wire rst,     
     input  wire tick,    // 1-cycle pulse; FSM advances only on tick
     output reg  ns_g, ns_y, ns_r,
     output reg  ew_g, ew_y, ew_r
 );
-    // State encoding
+
     parameter NS_G = 2'b00;
     parameter NS_Y = 2'b01;
     parameter EW_G = 2'b10;
     parameter EW_Y = 2'b11;
 
-    // Phase lengths in ticks
     parameter time_green = 3'd5;
     parameter time_yellow = 3'd2;
 
     reg [1:0] state_present, state_next;
-    reg [2:0] tick_count, tick_count_next;   // counts ticks spent in current phase
+    reg [2:0] tick_count, tick_count_next; 
 
-    // -----------------------------
-    // State & counter registers
-    // -----------------------------
+    // State transition on clock edge
     always @(posedge clk) begin
         if (rst) begin
             state_present <= NS_G;
@@ -34,9 +29,7 @@ module traffic_light(
         end
     end
 
-    // -----------------------------
-    // Next-state & next-counter
-    // -----------------------------
+    // Next state logic
     always @(*) begin
         state_next = state_present;
         tick_count_next   = tick_count;
@@ -85,9 +78,7 @@ module traffic_light(
         endcase
     end
 
-    // -----------------------------
-    // Moore outputs (1 of {g,y,r} per road)
-    // -----------------------------
+    // Output logic: set lights based on current state
     always @(*) begin
         ns_g=0; ns_y=0; ns_r=0;
         ew_g=0; ew_y=0; ew_r=0;
