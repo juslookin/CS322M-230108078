@@ -138,9 +138,9 @@ module riscvsingle(input  logic        clk, reset,
 
   logic       ALUSrc, RegWrite, Jump, Zero;
   logic [1:0] ResultSrc, ImmSrc;
-  logic [2:0] ALUControl;
+  logic [4:0] ALUControl;
 
-  controller c(Instr[6:0], Instr[14:12], Instr[30], Zero,
+  controller c(Instr[6:0], Instr[14:12], Instr[31:25], Zero,
                ResultSrc, MemWrite, PCSrc,
                ALUSrc, RegWrite, Jump,
                ImmSrc, ALUControl);
@@ -153,21 +153,21 @@ endmodule
 
 module controller(input  logic [6:0] op,
                   input  logic [2:0] funct3,
-                  input  logic       funct7b5,
+                  input  logic [6:0] funct7,
                   input  logic       Zero,
                   output logic [1:0] ResultSrc,
                   output logic       MemWrite,
                   output logic       PCSrc, ALUSrc,
                   output logic       RegWrite, Jump,
                   output logic [1:0] ImmSrc,
-                  output logic [2:0] ALUControl);
+                  output logic [4:0] ALUControl);
 
   logic [1:0] ALUOp;
   logic       Branch;
 
   maindec md(op, ResultSrc, MemWrite, Branch,
              ALUSrc, RegWrite, Jump, ImmSrc, ALUOp);
-  aludec  ad(op[5], funct3, funct7b5, ALUOp, ALUControl);
+  aludec  ad(op, funct3, funct7, ALUOp, ALUControl);
 
   assign PCSrc = Branch & Zero | Jump;
 endmodule
@@ -194,42 +194,108 @@ module maindec(input  logic [6:0] op,
       7'b1100011: controls = 11'b0_10_0_0_00_1_01_0; // beq
       7'b0010011: controls = 11'b1_00_1_0_00_0_10_0; // I-type ALU
       7'b1101111: controls = 11'b1_11_0_0_10_0_00_1; // jal
+      7'b0001011: controls = 11'b1_xx_0_0_00_0_10_0; // CUSTOM-0
       default:    controls = 11'bx_xx_x_x_xx_x_xx_x; // non-implemented instruction
     endcase
 endmodule
 
-module aludec(input  logic       opb5,
+module aludec(input  logic [6:0] op,
               input  logic [2:0] funct3,
-              input  logic       funct7b5, 
+              input  logic [6:0] funct7,
               input  logic [1:0] ALUOp,
-              output logic [2:0] ALUControl);
+              output logic [4:0] ALUControl);
 
-  logic  RtypeSub;
-  assign RtypeSub = funct7b5 & opb5;  // TRUE for R-type subtract instruction
+  // ALUControl encoding (5 bits)
+  localparam [4:0]
+    ALU_ADD   = 5'b00000,
+    ALU_SUB   = 5'b00001,
+    ALU_AND   = 5'b00010,
+    ALU_OR    = 5'b00011,
+    ALU_XOR   = 5'b00100,
+    ALU_SLT   = 5'b00101,
+    ALU_SLL   = 5'b00110,
+    ALU_SRL   = 5'b00111,
 
-  always_comb
+    // RVX10 custom encodings
+    ALU_ANDN  = 5'b01000,
+    ALU_ORN   = 5'b01001,
+    ALU_XNOR  = 5'b01010,
+    ALU_MIN   = 5'b01011,
+    ALU_MAX   = 5'b01100,
+    ALU_MINU  = 5'b01101,
+    ALU_MAXU  = 5'b01110,
+    ALU_ROL   = 5'b01111,
+    ALU_ROR   = 5'b10000,
+    ALU_ABS   = 5'b10001;
+
+  localparam [6:0] OPC_CUSTOM0 = 7'b0001011;
+
+  logic RtypeSub;
+  assign RtypeSub = funct7[5] & op[5];  // TRUE for R-type subtract instruction
+
+  always_comb begin
+    ALUControl = 5'bxxxxx;
     case(ALUOp)
-      2'b00:                ALUControl = 3'b000; // addition
-      2'b01:                ALUControl = 3'b001; // subtraction
-      default: case(funct3) // R-type or I-type ALU
-                 3'b000:  if (RtypeSub) 
-                            ALUControl = 3'b001; // sub
-                          else          
-                            ALUControl = 3'b000; // add, addi
-                 3'b010:    ALUControl = 3'b101; // slt, slti
-                 3'b110:    ALUControl = 3'b011; // or, ori
-                 3'b111:    ALUControl = 3'b010; // and, andi
-                 default:   ALUControl = 3'bxxx; // ???
-               endcase
+      2'b00: ALUControl = ALU_ADD;  
+      2'b01: ALUControl = ALU_SUB;  
+      default: begin
+        // R-type standard instructions or CUSTOM-0
+        if (op == OPC_CUSTOM0) begin
+          unique case (funct7) 
+            7'b0000000: begin
+              case (funct3)
+                3'b000: ALUControl = ALU_ANDN;
+                3'b001: ALUControl = ALU_ORN;
+                3'b010: ALUControl = ALU_XNOR;
+                default: ALUControl = 5'bxxxxx;
+              endcase
+            end
+            7'b0000001: begin
+              case (funct3)
+                3'b000: ALUControl = ALU_MIN;   
+                3'b001: ALUControl = ALU_MAX;  
+                3'b010: ALUControl = ALU_MINU;  
+                3'b011: ALUControl = ALU_MAXU;  
+                default: ALUControl = 5'bxxxxx;
+              endcase
+            end
+            7'b0000010: begin
+              case (funct3)
+                3'b000: ALUControl = ALU_ROL;
+                3'b001: ALUControl = ALU_ROR;
+                default: ALUControl = 5'bxxxxx;
+              endcase
+            end
+            7'b0000011: begin
+              case (funct3)
+                3'b000: ALUControl = ALU_ABS;
+                default: ALUControl = 5'bxxxxx;
+              endcase
+            end
+            default: ALUControl = 5'bxxxxx;
+          endcase
+        end else begin
+          case(funct3)
+            3'b000: if (RtypeSub) ALUControl = ALU_SUB; else ALUControl = ALU_ADD;
+            3'b010: ALUControl = ALU_SLT;
+            3'b110: ALUControl = ALU_OR; 
+            3'b111: ALUControl = ALU_AND;
+            3'b100: ALUControl = ALU_XOR;
+            default: ALUControl = 5'bxxxxx;
+          endcase
+        end
+      end
     endcase
+  end
 endmodule
+
 
 module datapath(input  logic        clk, reset,
                 input  logic [1:0]  ResultSrc, 
                 input  logic        PCSrc, ALUSrc,
                 input  logic        RegWrite,
                 input  logic [1:0]  ImmSrc,
-                input  logic [2:0]  ALUControl,
+                input  logic [4:0]  ALUControl,
                 output logic        Zero,
                 output logic [31:0] PC,
                 input  logic [31:0] Instr,
@@ -334,7 +400,7 @@ module imem(input  logic [31:0] a,
   logic [31:0] RAM[63:0];
 
   initial
-      $readmemh("riscvtest.txt",RAM);
+      $readmemh("tests/rvx10.hex",RAM);
 
   assign rd = RAM[a[31:2]]; // word aligned
 endmodule
@@ -352,13 +418,39 @@ module dmem(input  logic        clk, we,
 endmodule
 
 module alu(input  logic [31:0] a, b,
-           input  logic [2:0]  alucontrol,
+           input  logic [4:0]  alucontrol,
            output logic [31:0] result,
            output logic        zero);
 
   logic [31:0] condinvb, sum;
   logic        v;              // overflow
   logic        isAddSub;       // true when is add or subtract operation
+
+  wire signed [31:0] sa = a;
+  wire signed [31:0] sb = b;
+  wire [4:0] sh = b[4:0];
+
+
+  localparam [4:0]
+    ALU_ADD   = 5'b00000,
+    ALU_SUB   = 5'b00001,
+    ALU_AND   = 5'b00010,
+    ALU_OR    = 5'b00011,
+    ALU_XOR   = 5'b00100,
+    ALU_SLT   = 5'b00101,
+    ALU_SLL   = 5'b00110,
+    ALU_SRL   = 5'b00111,
+    ALU_ANDN  = 5'b01000,
+    ALU_ORN   = 5'b01001,
+    ALU_XNOR  = 5'b01010,
+    ALU_MIN   = 5'b01011,
+    ALU_MAX   = 5'b01100,
+    ALU_MINU  = 5'b01101,
+    ALU_MAXU  = 5'b01110,
+    ALU_ROL   = 5'b01111,
+    ALU_ROR   = 5'b10000,
+    ALU_ABS   = 5'b10001;
+
 
   assign condinvb = alucontrol[0] ? ~b : b;
   assign sum = a + condinvb + alucontrol[0];
@@ -367,15 +459,28 @@ module alu(input  logic [31:0] a, b,
 
   always_comb
     case (alucontrol)
-      3'b000:  result = sum;         // add
-      3'b001:  result = sum;         // subtract
-      3'b010:  result = a & b;       // and
-      3'b011:  result = a | b;       // or
-      3'b100:  result = a ^ b;       // xor
-      3'b101:  result = sum[31] ^ v; // slt
-      3'b110:  result = a << b[4:0]; // sll
-      3'b111:  result = a >> b[4:0]; // srl
-      default: result = 32'bx;
+      ALU_ADD:   result = sum; 
+      ALU_SUB:   result = sum;       
+      ALU_AND:   result = a & b;
+      ALU_OR:    result = a | b;
+      ALU_XOR:   result = a ^ b;
+      ALU_SLT:   result = {31'b0, (sa < sb)};   
+      ALU_SLL:   result = a << sh;
+      ALU_SRL:   result = a >> sh;
+
+      // RVX10
+      ALU_ANDN:  result = a & ~b;
+      ALU_ORN:   result = a | ~b;
+      ALU_XNOR:  result = ~(a ^ b);
+      ALU_MIN:   result = (sa < sb) ? a : b;
+      ALU_MAX:   result = (sa > sb) ? a : b;
+      ALU_MINU:  result = (a < b) ? a : b;
+      ALU_MAXU:  result = (a > b) ? a : b;
+      ALU_ROL:   result = (sh == 5'd0) ? a : ((a << sh) | (a >> (32 - sh)));
+      ALU_ROR:   result = (sh == 5'd0) ? a : ((a >> sh) | (a << (32 - sh)));
+      ALU_ABS:   result = (sa >= 0) ? a : (32'(0) - a);
+
+      default:   result = 32'bx;
     endcase
 
   assign zero = (result == 32'b0);
